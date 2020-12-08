@@ -3,7 +3,10 @@ import 'package:audiotagger/audiotagger.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_media_notification/flutter_media_notification.dart';
 import 'package:just_audio/just_audio.dart';
-import 'package:musicPlayer/models/playListDB.dart';
+import 'package:musicPlayer/models/exception.dart';
+import 'package:musicPlayer/models/song.dart';
+import 'package:musicPlayer/providers/playList_database.dart';
+import 'package:musicPlayer/services/lyrics.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class SongController extends ChangeNotifier {
@@ -15,14 +18,15 @@ class SongController extends ChangeNotifier {
   String timeLeft = '';
   String timePlayed = '';
   String playlistName; // this is assigned from playlist screen
-  List allSongs; // this is assigned from playlist screen
+  List<Song> allSongs; // this is assigned from playlist screen
+  List<String> lyrics = [];
   bool isFavourite = false;
   bool isShuffled = false;
   bool isRepeat = false;
   bool isPlaying = false;
   bool useArt = false;
-  dynamic nowPlaying = {};
-  dynamic lastPlayed;
+  Song nowPlaying;
+  Song lastPlayed;
   dynamic songArt;
   AppLifecycleState state;
   PlayListDB playListDB = PlayListDB();
@@ -37,8 +41,53 @@ class SongController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> setFavourite(dynamic song) async {
+  Future<void> setFavourite(Song song) async {
     isFavourite = await playListDB.isFavourite(song);
+    notifyListeners();
+  }
+
+  Future<void> manageLyrics({BuildContext context, bool delete}) async {
+    final audioTagger = Audiotagger();
+    String lyricsValue = delete ? '' : lyrics.join('\n').trim();
+    bool successful = await audioTagger.writeTag(
+      path: nowPlaying?.path,
+      tagField: 'lyrics',
+      value: lyricsValue,
+    );
+    successful
+        ? playListDB.showToast(
+            delete ? 'Lyrics deleted' : 'Lyrics saved', context)
+        : playListDB.showToast('Something went wrong', context,
+            isSuccess: false);
+    if (!delete) return;
+    lyrics = [];
+    notifyListeners();
+  }
+
+  Future<void> getLyrics(BuildContext context) async {
+    final audioTagger = Audiotagger();
+    var info;
+    try {
+      info = await audioTagger.readTagsAsMap(path: nowPlaying?.path);
+    } catch (e) {
+      debugPrint(e.toString());
+    }
+    if (info == null || info['lyrics'] == '') {
+      try {
+        lyrics = await Lyrics.getLyrics(nowPlaying?.artist, nowPlaying?.title)
+            .timeout(
+          Duration(seconds: 20),
+          onTimeout: () => throw CustomException('Taking too long, try again later'),
+        );
+        playListDB.showToast('Done', context);
+      } on CustomException catch (err) {
+        playListDB.showToast(err.message, context, isSuccess: false);
+      } catch (error) {
+        print(error);
+      }
+    } else {
+      lyrics = (info['lyrics'] as String).split('\n');
+    }
     notifyListeners();
   }
 
@@ -47,8 +96,8 @@ class SongController extends ChangeNotifier {
       pref.setBool('useArt', value);
     });
     useArt = value;
-    if (nowPlaying['path'] != null && useArt) {
-      await Audiotagger().readArtwork(path: nowPlaying['path']).then((value) {
+    if (nowPlaying.path != null && useArt) {
+      await Audiotagger().readArtwork(path: nowPlaying.path).then((value) {
         // not sure if this is a fix yet
         // songArt that were blank had lenght less than 20k
         value.length < 20000 ? songArt = null : songArt = value;
@@ -62,21 +111,21 @@ class SongController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> setUp(dynamic song) async {
+  Future<void> setUp(Song song) async {
     if (song != null) {
       nowPlaying = song;
-      currentSongIndex = allSongs
-          .indexWhere((element) => element['path'] == nowPlaying['path']);
+      currentSongIndex =
+          allSongs.indexWhere((element) => element.path == nowPlaying.path);
       player = AudioPlayer();
-      duration = await player.setFilePath(nowPlaying['path']);
+      duration = await player.setFilePath(nowPlaying.path);
       songLenght = duration.inSeconds;
       timeLeft = '${duration.inMinutes}:${duration.inSeconds % 60}';
       if (useArt) {
-        await Audiotagger().readArtwork(path: nowPlaying['path']).then((value) {
+        await Audiotagger().readArtwork(path: nowPlaying.path).then((value) {
           // not sure if this is a fix yet
           // songArt that were blank had lenght less than 20k
-        value.length < 20000 ? songArt = null : songArt = value;
-      }).catchError((e) => songArt = null);
+          value.length < 20000 ? songArt = null : songArt = value;
+        }).catchError((e) => songArt = null);
       }
       isFavourite = await playListDB.isFavourite(nowPlaying);
       playListDB.saveNowPlaying(nowPlaying);
@@ -87,7 +136,7 @@ class SongController extends ChangeNotifier {
   }
 
   void getPosition() {
-    player.getPositionStream().listen(
+    player.positionStream.listen(
       (event) async {
         currentTime = event.inSeconds;
         timePlayed = '${event.inMinutes}:${event.inSeconds % 60}';
@@ -117,7 +166,7 @@ class SongController extends ChangeNotifier {
 
   Future<void> skip({bool next = false, bool prev = false}) async {
     currentSongIndex =
-        allSongs.indexWhere((element) => element['path'] == nowPlaying['path']);
+        allSongs.indexWhere((element) => element.path == nowPlaying.path);
     List shuffled = [...allSongs];
     await disposePlayer();
     try {
@@ -125,8 +174,8 @@ class SongController extends ChangeNotifier {
         nowPlaying = nowPlaying;
       } else if (isShuffled) {
         shuffled.shuffle();
-        currentSongIndex = shuffled
-            .indexWhere((element) => element['path'] == nowPlaying['path']);
+        currentSongIndex =
+            shuffled.indexWhere((element) => element.path == nowPlaying.path);
         nowPlaying = next
             ? shuffled[currentSongIndex += 1]
             : shuffled[currentSongIndex -= 1];
@@ -144,16 +193,16 @@ class SongController extends ChangeNotifier {
     }
   }
 
-  Future<void> playlistControlOptions(dynamic playlistNowPlaying) async {
+  Future<void> playlistControlOptions(Song playlistNowPlaying) async {
     // if nothing is currently playing
-    if (nowPlaying['path'] == null) {
+    if (nowPlaying?.path == null) {
       await setUp(playlistNowPlaying);
       setIsPlaying(true);
       // if the song currently playing is taped on
-    } else if (nowPlaying['path'] == playlistNowPlaying['path']) {
+    } else if (nowPlaying?.path == playlistNowPlaying.path) {
       isPlaying ? pause() : play();
       // if a different song is selected
-    } else if (nowPlaying['path'] != playlistNowPlaying['path']) {
+    } else if (nowPlaying?.path != playlistNowPlaying.path) {
       disposePlayer();
       await setUp(playlistNowPlaying);
       setIsPlaying(true);
@@ -166,10 +215,7 @@ class SongController extends ChangeNotifier {
 
   Future<void> disposePlayer() async {
     try {
-      if (player.playbackState == AudioPlaybackState.playing ||
-          player.playbackState == AudioPlaybackState.paused) {
-        await player.dispose();
-      }
+      await player.dispose();
     } catch (e) {
       debugPrint(e.toString());
     }
@@ -177,6 +223,7 @@ class SongController extends ChangeNotifier {
     currentTime = 0;
     timeLeft = '';
     timePlayed = '';
+    lyrics = [];
     notifyListeners();
   }
 
@@ -191,17 +238,17 @@ class SongController extends ChangeNotifier {
       return;
     else
       MediaNotification.showNotification(
-        title: nowPlaying['title'],
-        author: nowPlaying['artist'],
+        title: nowPlaying.title,
+        author: nowPlaying.artist,
         isPlaying: isPlaying,
       );
   }
 
   void handleInterruptions() {
     AudioSession.instance.then((session) async {
-      player.playbackStateStream.listen((event) {
+      player.playbackEventStream.listen((event) {
         // Activate session only if a song is playing
-        if (event == AudioPlaybackState.playing) {
+        if (player.playing) {
           session.setActive(true);
         }
       }).onError((e) => print(e));

@@ -1,26 +1,27 @@
 import 'package:flutter/material.dart';
-import 'package:musicPlayer/components/customButton.dart';
-import 'package:musicPlayer/components/playlistOptions.dart';
-import 'package:musicPlayer/components/songTile.dart';
-import 'package:musicPlayer/models/Provider.dart';
-import 'package:musicPlayer/models/config.dart';
-import 'package:musicPlayer/models/playListDB.dart';
-import 'package:musicPlayer/models/share.dart';
-import 'package:musicPlayer/models/songController.dart';
+import 'package:musicPlayer/components/custom_button.dart';
+import 'package:musicPlayer/components/playlist_options.dart';
+import 'package:musicPlayer/components/song_tile.dart';
+import 'package:musicPlayer/models/song.dart';
+import 'package:musicPlayer/providers/all_songs.dart';
+import 'package:musicPlayer/util/config.dart';
+import 'package:musicPlayer/providers/playList_database.dart';
+import 'package:musicPlayer/providers/mark_songs.dart';
+import 'package:musicPlayer/providers/song_controller.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class PlayList extends StatefulWidget {
+  static const String pageId = '/playlist';
   final String playListName;
-  final List songList;
-  PlayList(this.playListName, this.songList);
+  PlayList({this.playListName});
   @override
   _PlayListState createState() => _PlayListState();
 }
 
 class _PlayListState extends State<PlayList> {
-  List allSongs;
-  List searchList;
+  List<Song> allSongs;
+  List<Song> searchList;
   bool isSearching = false;
   bool canDelete = false;
   TextEditingController input = TextEditingController();
@@ -28,11 +29,11 @@ class _PlayListState extends State<PlayList> {
 
   void search(String input) {
     searchList.clear();
-    searchList = List.from(widget.songList);
+    searchList = List.from(allSongs);
     setState(() {
       searchList.retainWhere((element) =>
-          element['title'].toLowerCase().contains(input.toLowerCase()) ||
-          element['artist'].toLowerCase().contains(input.toLowerCase()));
+          element.title.toLowerCase().contains(input.toLowerCase()) ||
+          element.artist.toLowerCase().contains(input.toLowerCase()));
     });
   }
 
@@ -41,14 +42,33 @@ class _PlayListState extends State<PlayList> {
       isSearching = false;
       input.clear();
       searchList.clear();
-      searchList = List.from(widget.songList);
+      searchList = List.from(allSongs);
     });
+  }
+
+  List<Song> getSongs() {
+    switch (widget.playListName) {
+      case ('All songs'):
+        return Provider.of<ProviderClass>(context, listen: false).allSongs;
+        break;
+      case ('Recently added'):
+        return Provider.of<ProviderClass>(context, listen: false).recentlyAdded;
+        break;
+      case ('Recently played'):
+        return Provider.of<PlayListDB>(context, listen: false).recentList;
+        break;
+      default:
+        final playlistdb = Provider.of<PlayListDB>(context, listen: false);
+        final playlist = playlistdb.playList
+            .firstWhere((element) => element['name'] == widget.playListName);
+        return playlistdb.extract(playlist['songs']);
+    }
   }
 
   @override
   void initState() {
-    allSongs = widget.songList;
-    searchList = List.from(widget.songList);
+    allSongs = getSongs();
+    searchList = List.from(allSongs);
     canDelete = widget.playListName == 'All songs' ||
         widget.playListName == 'Recently added';
     super.initState();
@@ -56,7 +76,7 @@ class _PlayListState extends State<PlayList> {
 
   @override
   void deactivate() {
-    Provider.of<ShareClass>(context, listen: false).reset();
+    Provider.of<MarkSongs>(context, listen: false).reset();
     super.deactivate();
   }
 
@@ -124,10 +144,9 @@ class _PlayListState extends State<PlayList> {
                                 FocusScope.of(context).requestFocus(focusNode);
                               });
                               setState(() {
-                              isSearching = true;
-                            });
+                                isSearching = true;
+                              });
                             }
-                            
                           },
                         ),
                       ],
@@ -138,40 +157,45 @@ class _PlayListState extends State<PlayList> {
                     thickness: 1.0,
                   ),
                   Expanded(
-                    // if songlist is empty calling [index]['path] causes it to crash
-                    child: widget.songList.isNotEmpty
-                        ? ListView.builder(
-                            itemCount: isSearching
-                                ? searchList.length
-                                : allSongs.length,
-                            itemBuilder: (context, index) {
-                              return Consumer<SongController>(
-                                builder: (context, controller, child) {
-                                  List songList =
-                                      isSearching ? searchList : allSongs;
-                                  return SongTile(
-                                    index: index,
-                                    playListName: widget.playListName,
-                                    controller: controller,
-                                    songList: songList,
-                                    resetSearch: resetSearch,
-                                    canDelete: canDelete,
-                                    buildShowDialog: buildShowDialog,
-                                  );
-                                },
-                              );
-                            },
-                          )
-                        : SizedBox.expand(),
+                    child: RefreshIndicator(
+                      backgroundColor: Theme.of(context).dialogBackgroundColor,
+                      onRefresh: () async {
+                        setState(() {
+                          allSongs = getSongs();
+                        });
+                        await Future.delayed(Duration(seconds: 1));
+                        return;
+                      },
+                      child: allSongs.isNotEmpty
+                          ? ListView.builder(
+                              itemCount: isSearching
+                                  ? searchList.length
+                                  : allSongs.length,
+                              itemBuilder: (context, index) {
+                                List<Song> songList =
+                                    isSearching ? searchList : allSongs;
+                                return SongTile(
+                                  index: index,
+                                  allSongs: allSongs,
+                                  songList: songList,
+                                  playListName: widget.playListName,
+                                  resetSearch: resetSearch,
+                                  canDelete: canDelete,
+                                  buildShowDialog: buildShowDialog,
+                                );
+                              },
+                            )
+                          : SizedBox.expand(),
+                    ),
                   ),
                 ],
               ),
             ),
-            Consumer<ShareClass>(
-              builder: (context, share, child) {
+            Consumer<MarkSongs>(
+              builder: (context, marker, child) {
                 return Align(
                   alignment: Alignment.bottomCenter,
-                  child: share.isReadyToMark
+                  child: marker.isReadyToMark
                       ? PlaylistOptions(widget.playListName, canDelete)
                       : Consumer<SongController>(
                           builder: (context, controller, child) {
@@ -235,16 +259,15 @@ class _PlayListState extends State<PlayList> {
     );
   }
 
-  buildShowDialog(BuildContext context, List songList, int index,
-      SongController controller) async {
+  buildShowDialog(BuildContext context, Song song) async {
     showDialog(
       context: context,
       builder: (context) {
         return AlertDialog(
           title: Text(
             canDelete
-                ? 'Delete "${songList[index]['title']}" from device?'
-                : 'Remove "${songList[index]['title']}" from ${widget.playListName}?',
+                ? 'Delete "${song.title}" from device?'
+                : 'Remove "${song.title}" from ${widget.playListName}?',
             style: TextStyle(
               fontSize: Config.textSize(context, 3.5),
               fontWeight: FontWeight.w400,
@@ -262,26 +285,29 @@ class _PlayListState extends State<PlayList> {
                 onPressed: () async {
                   final playlistDB =
                       Provider.of<PlayListDB>(context, listen: false);
+                  final controller =
+                      Provider.of<SongController>(context, listen: false);
                   if (canDelete) {
-                    await playlistDB.removeFromDevice(songList[index]);
+                    await playlistDB.removeFromDevice(song);
                     playlistDB.showToast('Delete successful!', context);
                     // if current song beign played is deleted its still available from libray
                     // causing craxy bugs
-                    if (controller.nowPlaying['path'] ==
-                        songList[index]['path']) {
+                    if (controller.nowPlaying?.path == song.path) {
                       await controller.skip(next: true);
-                      // controller.isPlaying ? padding = 10.0 : padding = 0.0;
                     }
                     setState(() {
                       Provider.of<ProviderClass>(context, listen: false)
-                          .removeSong(songList[index]);
+                          .removeSong(song);
+                      allSongs = getSongs();
                     });
                     Navigator.pop(context);
                   } else {
                     await playlistDB.removeFromPlaylist(
-                        widget.playListName, songList[index]);
+                        widget.playListName, song);
                     playlistDB.showToast('Removed successfully!', context);
-                    setState(() {});
+                    setState(() {
+                      allSongs = getSongs();
+                    });
                     Navigator.pop(context);
                     // setstate wasnt having the desired effect until after a while
                     Future.delayed(Duration(milliseconds: 500))

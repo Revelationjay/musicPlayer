@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:musicPlayer/models/Provider.dart';
-import 'package:musicPlayer/models/config.dart';
-import 'package:musicPlayer/models/playListDB.dart';
-import 'package:musicPlayer/models/songController.dart';
+import 'package:musicPlayer/providers/all_songs.dart';
+import 'package:musicPlayer/util/config.dart';
+import 'package:musicPlayer/providers/playList_database.dart';
+import 'package:musicPlayer/providers/song_controller.dart';
 import 'package:musicPlayer/screens/library.dart';
 import 'package:provider/provider.dart';
 
@@ -22,7 +22,7 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   void initState() {
     _controller = AnimationController(
-      TickerProvider: this,
+      vsync: this,
       duration: Duration(seconds: 1),
       upperBound: 1.0,
     )..addListener(() {
@@ -32,12 +32,9 @@ class _SplashScreenState extends State<SplashScreen>
           // initialises things like shuffle, repeat, last played
           Provider.of<SongController>(context, listen: false).init();
           // populates playlist from database
-          Provider.of<PlayListDB>(context, listen: false).refresh();
+          Provider.of<PlayListDB>(context, listen: false).init();
           Future.delayed(Duration(seconds: 2)).then((value) {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (context) => Library()),
-            );
+            Navigator.pushReplacementNamed(context, Library.pageId);
           });
         }
       });

@@ -1,22 +1,25 @@
 import 'dart:io';
 import 'package:audiotagger/audiotagger.dart';
+import 'package:audiotagger/models/tag.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:musicPlayer/models/song.dart';
+import 'package:musicPlayer/providers/playList_database.dart';
 import 'package:path/path.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 class ProviderClass extends ChangeNotifier {
-  ProviderClass(this._themeData);
+  ProviderClass({this.themeData});
 
-  ThemeData _themeData;
-  List allSongs = [];
-  List recentlyAdded = [];
+  ThemeData themeData;
+  List<Song> allSongs = [];
+  List<Song> recentlyAdded = [];
 
-  getTheme() => _themeData;
+  ThemeData get theme => themeData;
 
-  setTheme(ThemeData themeData) {
-    _themeData = themeData;
+  setTheme(ThemeData data) {
+    themeData = data;
     notifyListeners();
   }
 
@@ -25,20 +28,53 @@ class ProviderClass extends ChangeNotifier {
     sortList();
   }
 
-  void sortList() {
-    List newList = List.from(allSongs);
-    newList.sort((b, a) => a['recentlyAdded'].compareTo(b['recentlyAdded']));
-    // sort arranged it from old to new hence the reverse
-    recentlyAdded.addAll(newList);
-    // sort all songs in alphabetical order
-    allSongs.sort(
-        (a, b) => a['title'].toLowerCase().compareTo(b['title'].toLowerCase()));
+  Future<void> editSongInfo(BuildContext context, Song newSong, {String imagePath}) async {
+    final tagger = Audiotagger();
+    final playlistDB = PlayListDB();
+    final path = newSong.path;
+    final tag = Tag(
+      title: newSong.title,
+      artist: newSong.artist,
+      album: newSong.album,
+      genre: newSong.genre,
+      year: newSong.year,
+      artwork: imagePath, // ignored if it is null
+    );
+    final successful = await tagger.writeTags(
+      path: path,
+      tag: tag,
+    );
+    Song editedSong = await songInfo(path);
+    int index = allSongs.indexWhere((song) => song.path == newSong.path);
+    // replace
+    allSongs.replaceRange(index, index + 1, [editedSong]);
+    index = recentlyAdded.indexWhere((song) => song.path == newSong.path);
+    recentlyAdded.replaceRange(index, index + 1, [editedSong]);
+    await playlistDB.replaceSong(newSong);
+    successful
+        ? playlistDB.showToast('Edited successfully', context)
+        : playlistDB.showToast('Something went wrong', context, isSuccess: false);
+
     notifyListeners();
   }
 
-  void removeSong(dynamic song) {
-    allSongs.removeWhere((element) => element['path'] == song['path']);
-    recentlyAdded.removeWhere((element) => element['path'] == song['path']);
+  void sortList() {
+    List<Song> newList = List.from(allSongs);
+    newList.sort((b, a) {
+      if (a.dateAdded == null || b.dateAdded == null) return -1;
+      return a.dateAdded.compareTo(b.dateAdded);
+    });
+    // sort arranged it from old to new hence the reverse
+    recentlyAdded.addAll(newList);
+    // sort all songs in alphabetical order
+    allSongs
+        .sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+    notifyListeners();
+  }
+
+  void removeSong(Song song) {
+    allSongs.removeWhere((element) => element.path == song.path);
+    recentlyAdded.removeWhere((element) => element.path == song.path);
     notifyListeners();
   }
 
@@ -102,27 +138,16 @@ class ProviderClass extends ChangeNotifier {
     }
   }
 
-  Future<Map<String, dynamic>> songInfo(String file) async {
+  Future<Song> songInfo(String file) async {
     var audioTagger = Audiotagger();
     var info;
-    var date;
     try {
       info = await audioTagger.readTagsAsMap(
         path: file,
       );
-      date = File(file).lastAccessedSync();
     } catch (e) {
       debugPrint(e.toString());
     }
-    return {
-      'path': file,
-      'title': info != null && info['title'] != ''
-          ? info['title']
-          : file.split('/').last.split('.mp3').first,
-      'artist': info != null && info['artist'] != ''
-          ? info['artist']
-          : 'Unknown artist',
-      'recentlyAdded': date ?? 999999,
-    };
+    return Song.fromMap(info, filePath: file);
   }
 }

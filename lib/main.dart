@@ -1,13 +1,20 @@
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter/material.dart';
-import 'package:musicPlayer/constants.dart';
-import 'package:musicPlayer/models/Provider.dart';
-import 'package:musicPlayer/models/playListDB.dart';
-import 'package:musicPlayer/models/share.dart';
-import 'package:musicPlayer/models/songController.dart';
-import 'package:musicPlayer/screens/splash.dart';
+import 'package:musicPlayer/screens/edit_info.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'package:musicPlayer/screens/library.dart';
+import 'package:musicPlayer/screens/now_playing.dart';
+import 'package:musicPlayer/screens/playList.dart';
+import 'package:musicPlayer/screens/playing_from.dart';
+import 'package:musicPlayer/screens/settings.dart';
+import 'package:musicPlayer/util/themes.dart';
+import 'package:musicPlayer/providers/all_songs.dart';
+import 'package:musicPlayer/providers/playList_database.dart';
+import 'package:musicPlayer/providers/mark_songs.dart';
+import 'package:musicPlayer/providers/song_controller.dart';
+import 'package:musicPlayer/screens/splash.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -19,10 +26,10 @@ void main() {
     runApp(MultiProvider(
       providers: [
         ChangeNotifierProvider(
-            create: (_) => ProviderClass(kThemes[theme])),
+            create: (_) => ProviderClass(themeData: kThemes[theme])),
         ChangeNotifierProvider(create: (_) => PlayListDB()),
         ChangeNotifierProvider(create: (_) => SongController()),
-        ChangeNotifierProvider(create: (_) => ShareClass()),
+        ChangeNotifierProvider(create: (_) => MarkSongs()),
       ],
       child: MyApp(theme: kThemes[theme]),
     ));
@@ -37,8 +44,16 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Vibe player',
-      theme: Provider.of<ProviderClass>(context).getTheme(),
+      theme: Provider.of<ProviderClass>(context).theme,
       home: SplashScreen(theme),
+      routes: {
+        Library.pageId: (ctx) => Library(),
+        EditInfo.pageId: (ctx) => EditInfo(),
+        NowPlaying.pageId: (ctx) => NowPlaying(),
+        PlayList.pageId: (ctx) => PlayList(),
+        PlayingFrom.pageId: (ctx) => PlayingFrom(),
+        Settings.pageId: (ctx) => Settings(),
+      },
     );
   }
 }

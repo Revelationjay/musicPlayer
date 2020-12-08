@@ -1,20 +1,17 @@
 import 'package:flutter/material.dart';
-import 'package:musicPlayer/models/Provider.dart';
-import 'package:musicPlayer/models/config.dart';
-import 'package:musicPlayer/models/songController.dart';
-import 'package:musicPlayer/screens/nowPlaying.dart';
+import 'package:musicPlayer/models/song.dart';
+import 'package:musicPlayer/providers/all_songs.dart';
+import 'package:musicPlayer/util/config.dart';
+import 'package:musicPlayer/providers/song_controller.dart';
+import 'package:musicPlayer/screens/now_playing.dart';
 import 'package:provider/provider.dart';
 
-import 'customButton.dart';
+import 'custom_button.dart';
+
 
 // ignore: must_be_immutable
 class LibrarySongControl extends StatelessWidget {
-  LibrarySongControl({
-    Key key,
-    @required this.currentSong,
-  }) : super(key: key);
-
-  var currentSong;
+  Song currentSong;
 
   void setAllSongs(SongController controller, BuildContext context) {
     controller.allSongs = controller.allSongs == null
@@ -30,7 +27,7 @@ class LibrarySongControl extends StatelessWidget {
       builder: (context, controller, child) {
         // if the list or playlist name empty (when the app is opened) use all songs
         setAllSongs(controller, context);
-        currentSong = controller.nowPlaying['path'] == null
+        currentSong = controller.nowPlaying?.path == null
             ? controller.lastPlayed
             : controller.nowPlaying;
         return Align(
@@ -64,7 +61,7 @@ class LibrarySongControl extends StatelessWidget {
                         child: Text(
                           currentSong == null
                               ? 'title'
-                              : currentSong['title'],
+                              : currentSong.title,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: Config.textSize(context, 3.5),
@@ -80,7 +77,7 @@ class LibrarySongControl extends StatelessWidget {
                         child: Text(
                           currentSong == null
                               ? 'artist'
-                              : currentSong['artist'],
+                              : currentSong.artist,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: Config.textSize(context, 3),
@@ -106,7 +103,7 @@ class LibrarySongControl extends StatelessWidget {
                     isToggled: controller.isPlaying,
                     onPressed: () {
                       // if nothing is playing
-                      if (controller.nowPlaying['path'] == null) {
+                      if (controller.nowPlaying?.path == null) {
                         controller.setUp(currentSong);
                       } else {
                         controller.isPlaying
